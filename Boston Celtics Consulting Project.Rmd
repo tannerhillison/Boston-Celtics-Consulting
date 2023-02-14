@@ -1,0 +1,316 @@
+---
+title: "Boston Celtics Consulting Project"
+author: "Tanner Hillison"
+date: "2022-11-7"
+output: html_document
+---
+
+
+You are hired by the Boston Celtics to advise them on what type of trainer to hire. The **goal** of the Celtics is to increase their away winning percent by 10 percentage points. They only can hire one additional trainer, but each trainer only specializes in one part of the game of basketball: offensive rebounds (`oreb`), free throw shooting (`pctFT`), field goal shooting (`pctFG`), and turnovers (`tov`). Each trainer's cost starts at $150,000 is increasingly linearly as follows:
+
+* `oreb` trainer: +$1,000 per additional rebound
+* `tov` trainer: +$3,000 per reduced turnover
+* `pctFT` trainer: +$2,000 per additional percentage point
+* `pctFG` trainer: +$5,000 per additional percentage point
+
+Using the `game_summary.Rds` data, create an accurate prediction model for wins / losses, which you should then use to advise the Celtics on which trainer to hire in order to achieve their **goal** while minimizing costs.
+
+
+Loading data
+```{r}
+require(tidyverse)
+require(tidymodels)
+require(tidytext)
+require(ranger)
+require(modelr)
+nba_gms <- read_rds('/Users/tanner/Desktop/Data Science/DS1000_final_exam/data/game_summary.Rds')
+```
+
+
+#Part 1: Identifying missingness
+```{r}
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(is.na(oreb)) %>%
+  select(nameTeam) %>%
+  count(nameTeam)
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(is.na(tov)) %>%
+  select(nameTeam) %>%
+  count(nameTeam)
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(is.na(pctFT)) %>%
+  select(nameTeam) %>%
+  count(nameTeam)
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(is.na(pctFG)) %>%
+  select(nameTeam) %>%
+  count(nameTeam)
+```
+
+
+#Part 2: Univariate visualization
+```{r}
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(locationGame == 'A') %>%
+  ggplot(aes(x = oreb)) +
+  geom_histogram() + 
+  labs(x = 'Offensive Rebounds', y = 'Frequency', title = 'Offensive Rebound Univariate Visualisation')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(locationGame == 'A') %>%
+  ggplot(aes(x = pctFG)) +
+  geom_histogram() +
+  labs(x = 'Field Goal Percentage', y = 'Frequency', title = 'Field Goal Percentage Univariate Visualisation')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(locationGame == 'A') %>%
+  ggplot(aes(x = pctFT)) +
+  geom_histogram() + 
+  labs(x = 'Free Throw Percentage', y = 'Frequency', title = 'Free Throw Percentage Univariate Visualisation')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(locationGame == 'A') %>%
+  ggplot(aes(x = tov)) +
+  geom_histogram(bins = 20) +
+  labs(x = 'Total Turnovers', y = 'Frequency', title = 'Turnover Univariate Visualisation')
+```
+
+
+#Part 3: Relationship between each of the factors and win/loss
+```{r}
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(locationGame == 'A') %>%
+  ggplot(aes(x = oreb, fill = isWin)) +
+  geom_density(alpha = 0.5) +
+  labs(x = 'Offensive Rebounds', y = 'Frequency', title = 'Relationship Between Offensive Rebounds and Win/Loss')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(locationGame == 'A') %>%
+  ggplot(aes(x = pctFG, fill = isWin)) +
+  geom_density(alpha = 0.5) +
+  labs(x = 'Field Goal Percentage', y = 'Frequency', title = 'Relationship Between Field Goal Percentage and Win/Loss')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(locationGame == 'A') %>%
+  ggplot(aes(x = pctFT, fill = isWin)) +
+  geom_density(alpha = 0.5) +
+  labs(x = 'Free Throw Percentage', y = 'Frequency', title = 'Relationship Between Free Throw Percentage and Win/Loss')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  filter(locationGame == 'A') %>%
+  ggplot(aes(x = tov, fill = isWin)) +
+  geom_density(alpha = 0.5) +
+  labs(x = 'Total Turnovers', y = 'Frequency', title = 'Relationship Between Turnovers and Win/Loss')
+
+nba_gms %>%
+group_by(isWin) %>%
+ggplot(aes(x = factor(isWin), y = pctFG)) +
+geom_bar(stat = 'identity')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  ggplot(aes(x = tov, fill = locationGame)) +
+  geom_histogram() +
+  labs(x = 'Total Turnovers', y = 'Frequency', title = 'Relationship Between Turnovers and Home/Away')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  ggplot(aes(x = oreb, fill = locationGame)) +
+  geom_histogram() +
+  labs(x = 'Offensive Rebounds', y = 'Frequency', title = 'Relationship Between Offensive Rebounds and Home/Away')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  ggplot(aes(x = pctFG, fill = locationGame)) +
+  geom_histogram() +
+  labs(x = 'Field Goal Percentage', y = 'Frequency', title = 'Relationship Between FG Percentage and Home/Away')
+
+nba_gms %>%
+  filter(nameTeam == 'Boston Celtics') %>%
+  ggplot(aes(x = pctFT, fill = locationGame)) +
+  geom_histogram() +
+  labs(x = 'Free Throw Percentage', y = 'Frequency', title = 'Relationship Between FT Percentage and Home/Away')
+```
+
+
+#Part 4: Evaluating and comparing two models (linear regression and logistic regression) in terms of AUC using cross validation (100 times with 80-20% split)
+```{r}
+nba_gms %>%
+filter(nameTeam == 'Boston Celtics') %>%
+filter(locationGame == 'A') %>%
+ggplot(aes(x = pctFG, y = as.numeric(isWin))) +
+geom_point() +
+geom_smooth(method = 'lm')
+
+nba_gms %>%
+filter(nameTeam == 'Boston Celtics') %>%
+filter(locationGame == 'A') %>%
+ggplot(aes(x = tov, y = as.numeric(isWin))) +
+geom_point() +
+geom_smooth(method = 'lm')
+
+nba_gms %>%
+filter(nameTeam == 'Boston Celtics') %>%
+filter(locationGame == 'A') %>%
+ggplot(aes(x = pctFG, y = as.numeric(isWin))) +
+geom_jitter(width = .01,height = .05,alpha = .25) + 
+geom_smooth(method = 'lm',color = 'black') + 
+geom_smooth(method = 'glm',color = 'red', method.args = list(family = binomial(link = 'logit')))
+
+nba_gms %>%
+filter(nameTeam == 'Boston Celtics') %>%
+filter(locationGame == 'A') %>%
+ggplot(aes(x = tov, y = as.numeric(isWin))) +
+geom_jitter(width = .01,height = .05,alpha = .25) + 
+geom_smooth(method = 'lm',color = 'black') + 
+geom_smooth(method = 'glm',color = 'red', method.args = list(family = binomial(link = 'logit')))
+
+form <- 'as.numeric(isWin) ~ pctFG + pctFT + tov + oreb'
+  
+mLG <- glm(formula = as.formula(form),
+           data = nba_gms,family = binomial(link = 'logit'))
+#Predict
+pred <- nba_gms %>%
+  mutate(predY = predict(mLG,type = 'response'), # NB: type = 'response' for glm()!
+         truth = factor(as.numeric(isWin),levels = c('1','0'))) # NB: reorder outcome so that 1 is first!
+#Evaluate
+roc <- roc_auc(data = pred, truth = 'truth', estimate = 'predY')
+
+BC <- nba_gms %>%
+  filter(nameTeam == 'Boston Celtics')
+
+cvRes <- NULL
+for(i in 1:100) {
+  inds <- sample(1:nrow(BC),size = round(nrow(BC)*.8),replace = F)
+  train <- BC %>% slice(inds)
+  test <- BC %>% slice(-inds)
+  # Train
+  mLM <- lm(form,data = train)
+  mLG <- glm(form,data = train,family = binomial(link = 'logit'))
+  # Predict
+  pred <- test %>%
+  mutate(predLM = predict(mLM,newdata = test),
+         predLG = predict(mLG,newdata = test,type = 'response'),
+         truth = factor(as.numeric(isWin),levels = c('1','0')))
+  # Evaluate
+  resLG <- roc_auc(data = pred,truth = 'truth',estimate = 'predLG') %>%
+    mutate(algo = 'logit')
+  resLM <- roc_auc(data = pred,truth = 'truth',estimate = 'predLM') %>%
+    mutate(algo = 'linear') 
+  cvRes <- resLG %>% bind_rows(resLM) %>% bind_rows(cvRes)
+}
+
+cvRes %>%
+  group_by(algo) %>%
+  summarise(meanAUC = mean(.estimate))
+
+cvRes %>%
+  ggplot(aes(x = .estimate, fill = algo)) + 
+  geom_density(alpha = 0.5) +
+  labs(x = 'Estimate', title = 'Comparing of Models')
+```
+
+
+#Part 5: Determining the optimal threshold for predicting wins and losses
+```{r}
+mLM <- lm(as.numeric(isWin) ~ scale(pctFG) + scale(pctFT) + scale(oreb) + scale(tov), data = BC)
+summary(mLM)
+
+BC <- BC %>%
+ungroup() %>%
+mutate(prob_win = predict(mLM)) %>%
+mutate(pred_win = ifelse(prob_win >= 0.5, 1, 0))
+
+thresholdRes <- NULL
+for(thresh in seq(0, 1, by = 0.025)) {
+thresholdRes <- BC %>%
+mutate(pred_win = ifelse(prob_win >= thresh, 1, 0)) %>%
+group_by(isWin) %>%
+mutate(total_win = n()) %>%
+group_by(isWin, pred_win, total_win) %>%
+summarise(nwins = n(),.groups = 'drop') %>%
+mutate(prop = nwins / total_win) %>%
+ungroup() %>%
+mutate(accuracy = sum((as.numeric(isWin) == pred_win) * nwins) / sum(nwins)) %>%
+mutate(threshold = thresh) %>%
+bind_rows(thresholdRes)
+}
+
+thresholdRes %>%
+filter(as.numeric(isWin) == pred_win) %>%
+ggplot(aes(x = threshold, y = prop, color = factor(as.numeric(isWin)))) +
+geom_line() 
+```
+
+
+#Part 6: Applying the best-performing model to a hypothetical dataset to demonstrate that focusing on the proposed area of the game will achieve the desired result
+```{r}
+BCaway <- BC %>%
+  filter(locationGame == 'A')
+
+BCaway %>%
+  summarise(winPct = mean(isWin))
+
+model1 <- lm(isWin ~ oreb + tov + pctFT + pctFG, data = BCaway)
+summary(model1)
+
+horeb <- BCaway %>%
+  mutate(oreb = oreb + 3)
+
+horeb %>%
+  mutate(preds = predict(mLM, newdata = horeb)) %>%
+  mutate(pred_win = ifelse(preds > .618, 1, 0)) %>% #0.618 is from optimal threshhold
+  summarise(winPct = mean(pred_win), delta = mean(pred_win)-.585)
+
+htov <- BCaway %>%
+  mutate(tov = tov - 20)
+
+htov %>%
+  mutate(preds = predict(mLM, newdata = htov)) %>%
+  mutate(pred_win = ifelse(preds > .618, 1, 0)) %>%
+  summarise(winPct = mean(pred_win),  delta = mean(pred_win)-.585)
+
+hFTp <- BCaway %>%
+  mutate(pctFT = pctFT + 0.13)
+
+hFTp %>%
+  mutate(preds = predict(mLM, newdata = hFTp)) %>%
+  mutate(pred_win = ifelse(preds > .618, 1, 0)) %>%
+  summarise(winPct = mean(pred_win),  delta = mean(pred_win)-.585)
+
+hFGp <- BCaway %>%
+  mutate(pctFG = pctFG + 0.03)
+
+hFTp %>%
+  mutate(preds = predict(mLM, newdata = hFGp)) %>%
+  mutate(pred_win = ifelse(preds > .618, 1, 0)) %>%
+  summarise(winPct = mean(pred_win),  delta = mean(pred_win)-.585)
+```
+
+
+#Part 7: Explanation
+
+#Missingness-- There doesn't seem to be any missing data.
+
+#Univariate visualization-- I used 'geom_histogram()' for all 4 variables because each of the variables are continuous data. The univariate visualization for oreb seems to be somewhat normally distributed with a mean around 8 or 9. The total turnovers univariate visualization also seems to be somewhat normally distributed with a mean around 11 or 12. The free throw percentage visualization seems to be skewed left (which makes sense because free-throws are typically not that hard and most players score at least 1 out of every 2). The FG percentage visualization seems to be somewhat normally distributed with a mean around 45%-- which is about what we would expect. 
+
+#Multivariate visualization-- On the graph with win/loss and orebs, it seems that orebs doesn't have much of an impact on the proportion of wins and losses. (The graph does seem to show that the Celtics' lowest oreb games resulted in a loss and their largest orerb games resulted in wins.) On the graph with win/loss and turnovers, it seems that the proportion of wins to losses actually increases as turnovers increase-- which seems a bit strange as we normally assume better teams turnover the ball less. The other 2 graphs show that an increase in free throw and field goal percentage increases the proportion of wins. I also graphed each of the variables' conditional relationship with home/away instead of wins/losses as well. 
+
+#Linear/Logit-- There seems to be almost no difference between the linear and logit models. Also, we expect our graph to be messier since we are only looking at Celtics games and are therefore using a much smaller dataset. The threshold where sensitivity and specificity meets is 0.618. 
+
+#Consulting-- Delta is the change in win percentage. It seems that to get a 10% change or greater in away percentage, we would either need 4 more offensive rebounds (which cost $4000), a 13% increase in FT percentage (which cost $26,000), or a 3% increase in FG percentage (which cost $15,000). Therefore we should definitely hire the oreb trainer.
